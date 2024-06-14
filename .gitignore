@@ -1,0 +1,12 @@
+/.env
+/data/guildInfo/
+node_modules/
+/data/square
+/data/record.json
+/commands/test.js
+/commands/music
+*/error
+.vscode/
+*.db
+*test.js
+*/backup
