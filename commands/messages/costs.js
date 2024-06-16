@@ -4,7 +4,7 @@ require('dotenv').config();
 
 module.exports = {
     tag: "message",
-    name: "wadd",
+    name: "costs",
     /**
      * 
      * @param { Discord.Collection<string, { 
@@ -18,11 +18,16 @@ module.exports = {
     async execute(client, msg, content) {
 
         await msg.channel.sendTyping();
-        if(msg.author.id != process.env.AUTHOR_USERID) return;
 
-        const target = await client.users.resolve(content);
-        if(!target) return msg.channel.send("無法解析用戶。");
-        system.addWhiteList(content, target.username);
-        msg.channel.send(`已將 <@${content}> 加入白名單。`);
+        let target = await client.users.resolve(content);
+        if(!target) target = msg.author;
+        const data = system.getTotalCosts(target.id, target.username);
+        const str = `使用者 ${target.username} 的總花費：\`\`\`` +
+        `- costs: ${data.cost} USD\n` +
+        `- tokens: ${data.token}\n` +
+        `- usage: ${data.usage}` +
+        `\`\`\``;
+
+        msg.channel.send(str);
     }
 };

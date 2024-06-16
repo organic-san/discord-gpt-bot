@@ -8,9 +8,18 @@ require('dotenv').config();
 module.exports = {
     tag: "message",
     name: "gpt",
-    
+    /**
+     * 
+     * @param { Discord.Collection<string, { 
+     *      data: SlashCommandSubcommandsOnlyBuilder; 
+     *      tag: string; 
+     *      execute(interaction: Discord.CommandInteraction): Promise<void>; 
+     * }> } client 
+     * @param {Discord.Message<boolean>} interaction 
+     * @param {string} content
+     */
     async execute(client, msg, content) {
-        msg.channel.sendTyping();
+        await msg.channel.sendTyping();
 
         const openai = new OpenAI.OpenAI({ apiKey: process.env.OPENAI_TOKEN });
 
@@ -41,7 +50,7 @@ module.exports = {
             msg.channel.send(`使用 ${process.env.DEFAULT_MODEL} 模型 / 花費 ${cost} 美金。`);
         }).catch(err => {
             console.error(err);
-            msg.channel.send("在處理過程中發生意外的錯誤： " + err + "\n請稍後再試一次。");
+            msg.channel.send("在處理過程中發生意外的錯誤： ```" + err + "```請稍後再試一次。\n" + `<@${process.env.AUTHOR_USERID}>`);
         });
     }
 };

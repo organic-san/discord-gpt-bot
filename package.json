@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "axios": "^1.7.2",
     "better-sqlite3": "^11.0.0",
     "discord.js": "^14.15.3",
     "dotenv": "^16.4.5",
@@ -9,7 +10,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dept": "node create-slash-global.js",
+    "deptl": "node create-slash.js"
   },
   "author": "organic_san",
   "license": "ISC",

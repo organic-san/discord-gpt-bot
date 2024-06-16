@@ -1,10 +1,20 @@
+const Discord = require('discord.js');
 const system = require('../../utility/system.js');
 require('dotenv').config();
 
 module.exports = {
     tag: "message",
     name: "wremove",
-    
+    /**
+     * 
+     * @param { Discord.Collection<string, { 
+     *      data: SlashCommandSubcommandsOnlyBuilder; 
+     *      tag: string; 
+     *      execute(interaction: Discord.CommandInteraction): Promise<void>; 
+     * }> } client 
+     * @param {Discord.Message<boolean>} interaction 
+     * @param {string} content
+     */
     async execute(client, msg, content) {
 
         await msg.channel.sendTyping();

@@ -37,6 +37,14 @@ for (const file of eventFiles) {
     delete require.cache[require.resolve(`./models/${file}`)];
 }
 
+client.interactionCmds = new Discord.Collection();
+const interCmdFiles = fs.readdirSync('./commands/interactions').filter(file => file.endsWith('.js'));
+for (const file of interCmdFiles) {
+    const command = require(`./commands/interactions/${file}`);
+    client.interactionCmds.set(command.data.name, command);
+    delete require.cache[require.resolve(`./commands/interactions/${file}`)];
+}
+
 client.messageCmds = new Discord.Collection();
 const msgCmdFiles = fs.readdirSync('./commands/messages').filter(file => file.endsWith('.js'));
 for (const file of msgCmdFiles) {
