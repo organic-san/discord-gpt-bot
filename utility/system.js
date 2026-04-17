@@ -1,4 +1,3 @@
-const Discord = require('discord.js');
 const DB = require('./database.js');
 const func = require('./functions.js');
 require('dotenv').config();
@@ -6,63 +5,50 @@ require('dotenv').config();
 const db = DB.getConnection();
 
 module.exports = {
-    isInWriteList(userId) {
-        const stmt = db.prepare(`SELECT * FROM white_list WHERE id = ?`);
-        return stmt.get(userId) ? true : false;
-    },
-
-    addWhiteList(userId, username) {
-        const isin = this.isInWriteList(userId);
-        if(isin) return;
-        const stmt = db.prepare(`INSERT INTO white_list (id, added_at, name) VALUES (?, ?, ?)`);
-        stmt.run(userId, func.localISOTimeNow(), username);
-    },
-
-    removeWhiteList(userId) {
-        const isin = this.isInWriteList(userId);
-        if(!isin) return;
-        const stmt = db.prepare(`DELETE FROM white_list WHERE id = ?`);
-        stmt.run(userId);
-    },
-
-    getAllWhiteList() {
-        const stmt = db.prepare(`SELECT * FROM white_list`);
-        const result = stmt.all();
-        return result;
-    },
-
-    recordCost(userid, token, cost) {
-        const stmt = db.prepare(`SELECT * FROM user WHERE id = ?`);
-        const user = stmt.get(userid);
-        if(!user) {
-            const userData = db.prepare(`SELECT * FROM white_list WHERE id = ?`).get(userid);
-            if(!userData) return;
-            const stmt = db.prepare(`INSERT INTO user (id, name) VALUES (?, ?)`);
-            stmt.run(userid, userData.name);
-        }
-        const month = func.getLocalMonth();
-        const year = func.getLocalYear();
-        const monthlyData = db.prepare(`SELECT * FROM monthly_usage WHERE id = ? AND month = ? AND year = ?`).get(userid, month, year);
-        if(!monthlyData) {
-            const stmt = db.prepare(`INSERT INTO monthly_usage (id, month, year, tokens, cost, usage) VALUES (?, ?, ?, ?, ?, ?)`);
-            stmt.run(userid, month, year, token, cost, 1);
+    ensureUser(userId, username) {
+        const user = db.prepare(`SELECT id FROM user WHERE id = ?`).get(userId);
+        if (!user) {
+            db.prepare(`INSERT INTO user (id, name) VALUES (?, ?)`).run(userId, username);
+            return false;
         } else {
-            const stmt = db.prepare(`UPDATE monthly_usage SET tokens = ?, cost = ?, usage = ? WHERE id = ? AND month = ? AND year = ?`);
-            stmt.run(monthlyData.tokens + token, monthlyData.cost + cost, monthlyData.usage + 1, userid, month, year);
+            db.prepare(`UPDATE user SET name = ? WHERE id = ?`).run(username, userId);
+            return true;
         }
     },
 
-    getTotalCosts(userid) {
-        const stmt = db.prepare(`SELECT sum(cost) as sCost, sum(tokens) as sTokens, sum(usage) as sUsage FROM monthly_usage WHERE id = ?`);
-        const result = stmt.get(userid);
-        return { cost: result.sCost, token: result.sTokens, usage: result.sUsage };
+    recordUsage(userId, username, inputTokens, outputTokens, cost) {
+        this.ensureUser(userId, username);
+        const timestamp = func.localISOTimeNow();
+        db.prepare(`INSERT INTO usage_log (user_id, timestamp, input_tokens, output_tokens, cost) VALUES (?, ?, ?, ?, ?)`)
+            .run(userId, timestamp, inputTokens, outputTokens, cost);
     },
 
-    getMonthlyCosts(userid) {
-        const month = func.getLocalMonth();
-        const year = func.getLocalYear();
-        const stmt = db.prepare(`SELECT * FROM monthly_usage WHERE id = ? AND month = ? AND year = ?`);
-        const result = stmt.get(userid, month, year);
-        return { cost: result.cost, token: result.tokens, usage: result.usage };
-    }
+    getDailyUsage(userId) {
+        const date = func.getLocalDate();
+        const r = db.prepare(
+            `SELECT SUM(input_tokens) as i, SUM(output_tokens) as o, SUM(cost) as c, COUNT(*) as q
+             FROM usage_log WHERE user_id = ? AND timestamp LIKE ?`
+        ).get(userId, `${date}%`);
+        if (!r || r.q === 0) return { inputTokens: 0, outputTokens: 0, cost: 0, queryCount: 0 };
+        return { inputTokens: r.i || 0, outputTokens: r.o || 0, cost: r.c || 0, queryCount: r.q || 0 };
+    },
+
+    getMonthlyUsage(userId) {
+        const ym = func.getLocalYearMonth();
+        const r = db.prepare(
+            `SELECT SUM(input_tokens) as i, SUM(output_tokens) as o, SUM(cost) as c, COUNT(*) as q
+             FROM usage_log WHERE user_id = ? AND timestamp LIKE ?`
+        ).get(userId, `${ym}%`);
+        if (!r || r.q === 0) return { inputTokens: 0, outputTokens: 0, cost: 0, queryCount: 0 };
+        return { inputTokens: r.i || 0, outputTokens: r.o || 0, cost: r.c || 0, queryCount: r.q || 0 };
+    },
+
+    getTotalUsage(userId) {
+        const r = db.prepare(
+            `SELECT SUM(input_tokens) as i, SUM(output_tokens) as o, SUM(cost) as c, COUNT(*) as q
+             FROM usage_log WHERE user_id = ?`
+        ).get(userId);
+        if (!r || r.q === 0) return { inputTokens: 0, outputTokens: 0, cost: 0, queryCount: 0 };
+        return { inputTokens: r.i || 0, outputTokens: r.o || 0, cost: r.c || 0, queryCount: r.q || 0 };
+    },
 };
