@@ -1,5 +1,7 @@
 const Discord = require('discord.js');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
+require('dotenv').config();
+
 
 const MAX_BYTES = 7 * 1024 * 1024;
 
