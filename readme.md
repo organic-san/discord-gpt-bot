@@ -6,11 +6,12 @@
 default .env file:
 ```
 DISCORD_TOKEN=
-OPENAI_TOKEN=
+GEMINI_API_KEY=
 BOT_USERID=
 AUTHOR_USERID=
-DEFAULT_MODEL=gpt-4o
-DATABASE_URL=data/data.db
+MAIN_GUILDID=
+DEFAULT_MODEL=gemini-3.1-flash-lite-preview
+DATABASE_URL=
 ```
 
 usage:
