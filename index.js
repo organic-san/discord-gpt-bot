@@ -13,6 +13,14 @@ const options = {
         Discord.GatewayIntentBits.DirectMessages,
         Discord.GatewayIntentBits.MessageContent,
     ],
+    makeCache: Discord.Options.cacheWithLimits({
+        MessageManager: 50,
+        GuildMemberManager: 200,
+    }),
+    sweepers: {
+        messages: { interval: 300, lifetime: 600 },
+        users: { interval: 3600, filter: () => user => !user.bot },
+    }
 };
 const client = new Discord.Client(options);
 
