@@ -33,6 +33,7 @@ module.exports = {
         if (msg.webhookId) return;
         if (msg.author.bot) return;
         if (!msg.mentions.has(client.user)) return;
+        if(msg.channel.permissionsFor(client.user).has(Discord.PermissionsBitField.Flags.SendMessages) === false) return;
 
         const prompt = msg.content.replace(/<@!?\d+>/g, '').trim();
         if (!prompt) return;
