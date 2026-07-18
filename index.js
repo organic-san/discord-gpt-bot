@@ -9,8 +9,6 @@ const options = {
     intents: [
         Discord.GatewayIntentBits.Guilds,
         Discord.GatewayIntentBits.GuildMessages,
-        Discord.GatewayIntentBits.GuildMembers,
-        Discord.GatewayIntentBits.GuildVoiceStates,
         Discord.GatewayIntentBits.DirectMessages,
         Discord.GatewayIntentBits.MessageContent,
     ],
