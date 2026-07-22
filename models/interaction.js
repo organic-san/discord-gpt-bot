@@ -1,5 +1,6 @@
 const Discord = require('discord.js');
 const notify = require('../utility/notify');
+const isafe = require('../utility/interactionSafe');
 require('dotenv').config();
 
 module.exports = {
@@ -22,16 +23,14 @@ module.exports = {
         try {
             if (command.tag === "interaction") await command.execute(client, interaction);
         } catch (error) {
+            if (isafe.isDead(error)) {
+                isafe.logDead(interaction, error, `處理指令 ${commandName} 時互動已失效`);
+                return;
+            }
             console.error(error);
             notify.error(`處理指令 ${commandName} 時發生錯誤`, error);
-            try {
-                const msg = "在處理過程中發生意外的錯誤：```" + error + "```請稍後再試一次。\n" + `<@${process.env.AUTHOR_USERID}>`;
-                await interaction.reply({ content: msg }).catch(async () => {
-                    await interaction.editReply({ content: msg, embeds: [], components: [] });
-                });
-            } catch (err) {
-                console.error(err);
-            }
+            const msg = "在處理過程中發生意外的錯誤：```" + error + "```請稍後再試一次。\n" + `<@${process.env.AUTHOR_USERID}>`;
+            await isafe.safeRespond(interaction, { content: msg, embeds: [], components: [] });
         }
     }
 }

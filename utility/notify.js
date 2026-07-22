@@ -6,10 +6,10 @@ require('dotenv').config();
 // client 需在 clientReady 後由 index.js 呼叫 init() 綁定。
 let client = null;
 
-const createErrorLog = (err, command) => {
+const createErrorLog = (err, extra) => {
     const errorLog =
         `${err}\n\n` +
-        (command ? "Error Command: " + command + "\n\n" : "") +
+        (extra ? extra + "\n\n" : "") +
         `Error Info: ${JSON.stringify(err, null, '\t')}\n\n` +
         `Error Route: ${err?.stack}`;
     return errorLog;
@@ -48,12 +48,13 @@ module.exports = {
     },
 
     /**
-     * 錯誤通知：摘要顯示於訊息，完整堆疊以附件輸出。
+     * 錯誤通知：摘要顯示於訊息並 @ 作者，完整堆疊（含 JSON）以附件輸出至 CLI 與 Discord。
      * @param {string} context - 錯誤類型描述
      * @param {Error|*} error - 錯誤物件或任意拋出值
+     * @param {string} [extra] - 附加的預格式化脈絡文字（附於堆疊附件內，例如 interaction 診斷）
      */
-    error(context, error) {
-        const errmsg = createErrorLog(error);
+    error(context, error, extra) {
+        const errmsg = createErrorLog(error, extra);
         try {
             this.log(`<@${process.env.AUTHOR_USERID}>，${context}: ` + error, errmsg);
         } catch (err) {

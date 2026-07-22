@@ -4,6 +4,7 @@ const DB = require('../../utility/database.js');
 const func = require('../../utility/functions.js');
 const modConfig = require('../../utility/modConfig.js');
 const evidence = require('../../utility/evidence.js');
+const isafe = require('../../utility/interactionSafe.js');
 require('dotenv').config();
 
 const db = DB.getConnection();
@@ -19,14 +20,16 @@ module.exports = {
         .setContexts(InteractionContextType.Guild),
 
     async execute(client, interaction) {
+        if (!await isafe.safeDefer(interaction, { flags: Discord.MessageFlags.Ephemeral })) return;
+
         if (!interaction.inGuild()) {
-            await interaction.reply({ content: '此指令僅能在伺服器中使用。', flags: Discord.MessageFlags.Ephemeral });
+            await interaction.editReply('此指令僅能在伺服器中使用。');
             return;
         }
 
         const conf = modConfig.get(interaction.guildId);
         if (!conf.report_thread_parent_id) {
-            await interaction.reply({ content: '本伺服器尚未設定檢舉討論串母頻道，請聯絡管理員以 `/modconfig` 設定。', flags: Discord.MessageFlags.Ephemeral });
+            await interaction.editReply('本伺服器尚未設定檢舉討論串母頻道，請聯絡管理員以 `/modconfig` 設定。');
             return;
         }
 
@@ -38,7 +41,7 @@ module.exports = {
             `SELECT id FROM report WHERE reporter_id = ? AND target_msg_id = ?`
         ).get(reporterId, target.id);
         if (dup) {
-            await interaction.reply({ content: '你已經檢舉過這則訊息了。', flags: Discord.MessageFlags.Ephemeral });
+            await interaction.editReply('你已經檢舉過這則訊息了。');
             return;
         }
 
@@ -48,16 +51,14 @@ module.exports = {
         const windowMs = minutes * 60 * 1000;
         const stamps = (rateMap.get(reporterId) || []).filter(t => now - t < windowMs);
         if (stamps.length >= count) {
-            await interaction.reply({ content: `已達到 ${minutes} 分鐘內的檢舉次數上限（${count} 次）。`, flags: Discord.MessageFlags.Ephemeral });
+            await interaction.editReply(`已達到 ${minutes} 分鐘內的檢舉次數上限（${count} 次）。`);
             return;
         }
 
         if (target.author.bot) {
-            await interaction.reply({ content: '無法檢舉機器人訊息。', flags: Discord.MessageFlags.Ephemeral });
+            await interaction.editReply('無法檢舉機器人訊息。');
             return;
         }
-
-        await interaction.deferReply({ flags: Discord.MessageFlags.Ephemeral });
 
         try {
             const parent = await interaction.guild.channels.fetch(conf.report_thread_parent_id).catch(() => null);

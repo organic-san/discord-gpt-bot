@@ -4,6 +4,7 @@ const DB = require('../utility/database.js');
 const func = require('../utility/functions.js');
 const moderation = require('../utility/moderation.js');
 const pf = require('../utility/punishFlow.js');
+const isafe = require('../utility/interactionSafe.js');
 require('dotenv').config();
 
 const db = DB.getConnection();
@@ -344,13 +345,14 @@ module.exports = {
                 return;
             }
         } catch (error) {
+            // interaction 已失效（3 秒 ack 逾時 / 已 ack）：無法再回應，記到共用 log（含脈絡），不當致命錯誤
+            if (isafe.isDead(error)) {
+                isafe.logDead(interaction, error, `處理互動 ${id} 時已失效`);
+                return;
+            }
             console.error('modInteraction error:', error);
             const msg = '處理互動時發生錯誤：```' + (error?.message || error) + '```';
-            if (interaction.deferred || interaction.replied) {
-                await interaction.editReply({ content: msg, components: [] }).catch(() => {});
-            } else {
-                await interaction.reply({ content: msg, flags: Discord.MessageFlags.Ephemeral }).catch(() => {});
-            }
+            await isafe.safeRespond(interaction, { content: msg, components: [] }, { ephemeral: true });
         }
     }
 };
