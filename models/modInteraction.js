@@ -11,6 +11,8 @@ const db = DB.getConnection();
 
 const REVOKE_WINDOW_MS = pf.REVOKE_WINDOW_MS; // 告知訊息上撤回按鈕的有效時間
 const DETECTION_BAN_DELETE_SECONDS = 60 * 60; // 偵測（跨頻道連發）停權：預設刪除 1 小時內的訊息
+// 偵測（跨頻道連發）停權的固定理由。此情境的成因單一，不再要求管理員逐次填寫。
+const DETECTION_BAN_REASON = '跨頻道連發：受到攻擊或者失去所有權的帳號';
 
 function isAdmin(interaction) {
     return interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
@@ -85,12 +87,12 @@ module.exports = {
                     const msg = ch ? await ch.messages.fetch(report.target_msg_id).catch(() => null) : null;
                     if (!msg) { await interaction.editReply('原訊息已不存在（證據已於檢舉時固化）。'); return; }
                     await msg.delete().catch(() => null);
-                    await interaction.editReply('🗑️ 已刪除原訊息。');
+                    await interaction.editReply(`🗑️ <@${interaction.user.id}> 已刪除原訊息。`);
                     return;
                 }
                 if (action === 'archive') {
                     // 以 update 編輯 /close 訊息本身：移除按鈕，讓誰都不能再按
-                    await interaction.update({ content: '🔒 討論串已關閉，本案結束。', components: [] });
+                    await interaction.update({ content: `🔒 <@${interaction.user.id}> 已關閉討論串，本案結束。`, components: [] });
                     if (report.status !== 'closed') {
                         db.prepare(`UPDATE report SET status = 'closed', closed_at = ? WHERE id = ?`)
                             .run(func.localISOTimeNow(), report.id);
@@ -183,8 +185,8 @@ module.exports = {
                     await interaction.deferReply();
                     const deleteSeconds = Number(interaction.values[0]);
                     const freeze = moderation.getPunishment(freezeId);
-                    const reason = freeze?.reason || '違規過多停權'; // 凍結理由已標註觸發的違規過多規則
-                    // 原子認領：把待裁決凍結就地轉成正式停權（CAS，並發/連點只有第一個成功 → 杜絕重複資料）
+                    const reason = freeze?.reason || '違規過多停權'; // 禁言理由已標註觸發的違規過多規則
+                    // 原子認領：把待裁決禁言就地轉成正式停權（CAS，並發/連點只有第一個成功 → 杜絕重複資料）
                     const claimed = moderation.resolveFreeze(freezeId, { type: 'ban', duration_min: null, source: 'auto_escalation', reason });
                     if (!claimed) {
                         await interaction.message.edit({ components: [] }).catch(() => null);
@@ -211,7 +213,7 @@ module.exports = {
                     if (logId) moderation.setEvidenceMsg(freezeId, logId);
 
                     await interaction.editReply(res.ok
-                        ? `🔨 已正式停權 <@${targetUserId}>（處分 #${freezeId}）。`
+                        ? `🔨 <@${interaction.user.id}> 對 <@${targetUserId}> 正式執行**停權**（處分 #${freezeId}）。`
                         : `⚠️ 停權失敗：${res.error}（紀錄已更新）`);
                     return;
                 }
@@ -224,7 +226,7 @@ module.exports = {
                 if (action === 'dur') {
                     await interaction.deferReply();
                     const durationMin = Number(interaction.values[0]);
-                    // 原子認領：把待裁決凍結就地轉成定時禁言（CAS，防連點/並發重複）
+                    // 原子認領：把待裁決禁言就地轉成定時禁言（CAS，防連點/並發重複）
                     const claimed = moderation.resolveFreeze(freezeId, { duration_min: durationMin, source: 'auto_escalation', reason: '違規過多：管理員改判定時禁言' });
                     if (!claimed) {
                         await interaction.message.edit({ components: [] }).catch(() => null);
@@ -253,7 +255,7 @@ module.exports = {
                     if (logId) moderation.setEvidenceMsg(freezeId, logId);
 
                     await interaction.editReply(res.ok
-                        ? `⏳ 已將 <@${targetUserId}> 改為定時禁言 ${pf.durationLabel(durationMin)}。`
+                        ? `⏳ <@${interaction.user.id}> 已將 <@${targetUserId}> 改為定時禁言 ${pf.durationLabel(durationMin)}。`
                         : `⚠️ 調整失敗：${res.error}`);
                     return;
                 }
@@ -261,14 +263,14 @@ module.exports = {
                 if (action === 'unmute') {
                     await interaction.deferReply();
                     await interaction.message.edit({ components: [] }).catch(() => null);
-                    // 凍結本身非處分：原子移除該 hold（防連點/並發），解除禁言，不發撤回處分訊息、不計入處分。
+                    // 禁言本身非處分：原子移除該 hold（防連點/並發），解除禁言，不發撤回處分訊息、不計入處分。
                     const removed = moderation.deleteFreeze(freezeId);
                     if (!removed) { await interaction.editReply('此裁決已被處理過。'); return; }
                     let res;
-                    try { res = await moderation.clearTimeout(interaction.guild, targetUserId, '管理員解除違規過多凍結'); }
+                    try { res = await moderation.clearTimeout(interaction.guild, targetUserId, '管理員解除違規過多禁言'); }
                     catch (e) { res = { ok: false, error: String(e?.message || e) }; }
                     const warn = (!res.ok && res.error !== '找不到該成員。') ? `\n⚠️ 解除失敗：${res.error}` : '';
-                    await interaction.editReply(`✅ 已解除 <@${targetUserId}> 的凍結（未予處分）。${warn}`);
+                    await interaction.editReply(`✅ <@${interaction.user.id}> 已解除 <@${targetUserId}> 的禁言（未予處分）。${warn}`);
                     return;
                 }
             }
@@ -285,20 +287,15 @@ module.exports = {
                     catch (e) { res = { ok: false, error: String(e?.message || e) }; }
                     await interaction.message.edit({ components: [] }).catch(() => null);
                     await interaction.editReply(res.ok
-                        ? `✅ 已解除 <@${targetUserId}> 的禁言。`
+                        ? `✅ <@${interaction.user.id}> 已解除 <@${targetUserId}> 的禁言。`
                         : `⚠️ 解除失敗：${res.error}`);
                     return;
                 }
 
                 if (action === 'ban') {
-                    // 將證據圖所在訊息引用（rest = userId[:channelId:msgId]）一併帶進 Modal
-                    await interaction.showModal(pf.reasonModalRaw(`det:banmodal:${rest.join(':')}`, 'ban'));
-                    return;
-                }
-
-                if (action === 'banmodal') {
+                    // 理由固定為 DETECTION_BAN_REASON，按下即執行停權（不再跳 Modal 要求填寫）。
+                    // rest = userId[:channelId:msgId]，後兩者為證據圖所在訊息的引用。
                     const eviChannelId = rest[1], eviMsgId = rest[2];
-                    const reason = interaction.fields.getTextInputValue('reason');
                     await interaction.deferReply();
 
                     // 取偵測通報當下產生的證據圖訊息，交由統一流程轉貼到處分頻道
@@ -310,7 +307,7 @@ module.exports = {
 
                     const { summary } = await finalizePunishment(interaction, {
                         guild: interaction.guild, targetUserId, type: 'ban', durationMin: null,
-                        reason, source: 'detection', report: null,
+                        reason: DETECTION_BAN_REASON, source: 'detection', report: null,
                         evidenceSrc: notifyMsg ? { transcribe: notifyMsg } : null,
                         banDeleteSeconds: DETECTION_BAN_DELETE_SECONDS, // 跨頻道連發停權：刪除 1 小時內訊息
                     });

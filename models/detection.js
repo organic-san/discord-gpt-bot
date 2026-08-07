@@ -64,7 +64,7 @@ module.exports = {
             const card = await evidence.renderMessageCard(msg, { embedImages: true }).catch(() => null);
             if (card) files.push(card.setSpoiler(true));
 
-            // 下方操作按鈕：解除禁言 / 停權（停權需填理由）
+            // 下方操作按鈕：解除禁言 / 停權（停權理由固定，按下即執行）
             const buildRow = (banCustomId) => new Discord.ActionRowBuilder().addComponents(
                 new Discord.ButtonBuilder()
                     .setCustomId(banCustomId)

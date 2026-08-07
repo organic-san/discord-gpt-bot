@@ -7,7 +7,7 @@ require('dotenv').config();
 
 const db = DB.getConnection();
 
-// Discord timeout 上限為 28 天，作為「無限期凍結」使用；duration_min = -1 代表凍結。
+// Discord timeout 上限為 28 天，作為「無限期禁言」使用；duration_min = -1 代表禁言。
 const FREEZE_MIN = 28 * 24 * 60; // 40320
 const MAX_TIMEOUT_MS = FREEZE_MIN * 60 * 1000 - 1000; // 略低於 Discord 28 天上限，避免邊界被拒
 
@@ -74,7 +74,7 @@ module.exports = {
         const lines = records.map(r => {
             const time = (r.created_at || '').replace('T', ' ');
             const dur = r.type === 'mute' && r.duration_min != null
-                ? (r.duration_min < 0 ? '（無限期凍結）' : `（${this.durationLabel(r.duration_min)}）`) : '';
+                ? (r.duration_min < 0 ? '（無限期禁言）' : `（${this.durationLabel(r.duration_min)}）`) : '';
             const revoked = r.revoked ? ' ~~已撤銷~~' : '';
             const src = SOURCE_LABEL[r.source] || r.source;
             return `**#${r.id}** \`${TYPE_LABEL[r.type] || r.type}\`${dur}${revoked} — ${src}\n` +
@@ -123,7 +123,7 @@ module.exports = {
     },
 
     getUserPunishments(guildId, userId, limit = 25) {
-        // 排除「違規過多待裁決凍結」：它只是暫時止血的 hold，本身不計為處分，
+        // 排除「違規過多待裁決禁言」：它只是暫時止血的 hold，本身不計為處分，
         // 待管理員以 confirm/dur 裁決後才會就地轉成真正的處分（停權／定時禁言）。
         return db.prepare(
             `SELECT * FROM punishment WHERE guild_id = ? AND target_user_id = ? AND source != 'escalation_freeze'
@@ -131,8 +131,8 @@ module.exports = {
         ).all(guildId, userId, limit);
     },
 
-    // ── 違規過多待裁決凍結（escalation_freeze）：暫時 hold，非處分 ──
-    /** 取得某用戶尚未裁決的凍結（用於避免重複觸發）。 */
+    // ── 違規過多待裁決禁言（escalation_freeze）：暫時 hold，非處分 ──
+    /** 取得某用戶尚未裁決的禁言（用於避免重複觸發）。 */
     getPendingFreeze(guildId, userId) {
         return db.prepare(
             `SELECT * FROM punishment WHERE guild_id = ? AND target_user_id = ?
@@ -141,7 +141,7 @@ module.exports = {
     },
 
     /**
-     * 原子地「認領並轉換」一筆待裁決凍結為真正的處分（compare-and-swap）。
+     * 原子地「認領並轉換」一筆待裁決禁言為真正的處分（compare-and-swap）。
      * WHERE 條件含 source='escalation_freeze'，故並發/連點只有第一個會成功，杜絕重複資料。
      * @returns {boolean} 是否由本次呼叫認領成功。
      */
@@ -154,7 +154,7 @@ module.exports = {
         return info.changes > 0;
     },
 
-    /** 原子地刪除一筆待裁決凍結（解除凍結用；非處分故直接移除，不留撤回紀錄）。 */
+    /** 原子地刪除一筆待裁決禁言（解除禁言用；非處分故直接移除，不留撤回紀錄）。 */
     deleteFreeze(id) {
         const info = db.prepare(`DELETE FROM punishment WHERE id = ? AND source = 'escalation_freeze'`).run(id);
         return info.changes > 0;
@@ -204,7 +204,7 @@ module.exports = {
         return { ok: false, error: `未知的處分類型：${type}` };
     },
 
-    /** 解除某成員的禁言／凍結。 */
+    /** 解除某成員的禁言。 */
     async clearTimeout(guild, userId, reason) {
         const member = await guild.members.fetch(userId).catch(() => null);
         if (!member) return { ok: false, error: '找不到該成員。' };
@@ -283,12 +283,12 @@ module.exports = {
         console.log(`[auto] 違規過多觸發：${guild.name} (${guild.id}), user ${userId}, 規則 #${matched.id} → ${action}`);
 
         if (action === 'ban') {
-            // 已有未裁決的凍結則不重複觸發（避免堆疊多筆 hold 與重複裁決訊息）。
+            // 已有未裁決的禁言則不重複觸發（避免堆疊多筆 hold 與重複裁決訊息）。
             if (this.getPendingFreeze(guild.id, userId)) {
-                console.log(`[auto] 違規過多：user ${userId} 已有待裁決凍結，略過重複觸發`);
+                console.log(`[auto] 違規過多：user ${userId} 已有待裁決禁言，略過重複觸發`);
                 return { action: 'ban-pending', ruleId: matched.id };
             }
-            // Ban 永遠經人類拍板：先以無限期凍結止血（source=escalation_freeze，本身不計處分），再發 Ban 裁決訊息。
+            // Ban 永遠經人類拍板：先以無限期禁言止血（source=escalation_freeze，本身不計處分），再發 Ban 裁決訊息。
             const res = await this.applyDiscordAction(guild, userId, 'mute', -1, reason).catch(e => ({ ok: false, error: String(e) }));
             const freezeId = this.insertPunishment({
                 guildId: guild.id, targetUserId: userId, type: 'mute', durationMin: -1,
@@ -391,11 +391,11 @@ module.exports = {
 
         // 5. 違規過多結果（已於 2.5 取得 esc）轉為摘要附註
         let escalationNote = '';
-        if (esc?.action === 'ban-pending') escalationNote = '\n⚙️ 違規過多 Ban 警告：已凍結發言權限，於管理員頻道發送裁決訊息。';
+        if (esc?.action === 'ban-pending') escalationNote = '\n⚙️ 違規過多 Ban 警告：已禁言發言權限，於管理員頻道發送裁決訊息。';
         else if (esc) escalationNote = `\n⚙️ 違規過多觸發：${TYPE_LABEL[esc.action] || esc.action}。`;
 
         const statusNote = actionResult.ok ? '' : `\n⚠️ Discord 執行未完成：${actionResult.error}（紀錄已保存）`;
-        const summary = `✅ 已對 <@${targetUserId}> 執行**${TYPE_LABEL[type] || type}**（處分 #${pid}）。${statusNote}${escalationNote}`;
+        const summary = `✅ <@${executorId}> 對 <@${targetUserId}> 執行**${TYPE_LABEL[type] || type}**（處分 #${pid}）。${statusNote}${escalationNote}`;
         return { pid, summary };
     },
 
@@ -424,7 +424,7 @@ module.exports = {
                 { name: '理由', value: reason },
             )
             .setTimestamp();
-        if (freezeError) embed.addFields({ name: '⚠️ 凍結狀態', value: freezeError });
+        if (freezeError) embed.addFields({ name: '⚠️ 禁言狀態', value: freezeError });
 
         const row = new Discord.ActionRowBuilder().addComponents(
             new Discord.ButtonBuilder()
