@@ -36,11 +36,14 @@ module.exports = {
         try {
             const channel = client.channels.cache.get(process.env.CHECK_CH_ID);
             if (!channel) return;
+            // send 失敗只寫 CLI，不可再走 notify —— 否則網路不穩時會變成
+            // 「送失敗 → unhandledRejection → notify.error → 再送失敗」的無限迴圈。
+            const onFail = e => console.error('[notify] 監控頻道發送失敗：', e?.message || e);
             if (attr) {
                 const atc = new Discord.AttachmentBuilder(Buffer.from(attr), { name: 'error.txt' });
-                channel.send({ content: msg, files: [atc] });
+                channel.send({ content: msg, files: [atc] }).catch(onFail);
             } else {
-                channel.send(msg);
+                channel.send(msg).catch(onFail);
             }
         } catch (error) {
             console.error(error);

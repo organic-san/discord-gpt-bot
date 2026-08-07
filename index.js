@@ -5,7 +5,9 @@ const notify = require('./utility/notify');
 dotenv.config();
 
 const options = {
-    restTimeOffset: 100,
+    rest: {
+        offset: 100,
+    },
     intents: [
         Discord.GatewayIntentBits.Guilds,
         Discord.GatewayIntentBits.GuildMessages,
@@ -38,6 +40,8 @@ client.once('clientReady', () => {
     notify.log(`登入成功: ${Discord.time(new Date())}`);
     // 啟動每日資料庫備份排程
     require('./utility/backup').start();
+    // 啟動心跳監測（保溫 + 逾時取證），並開始記錄 shard 生命週期事件
+    require('./utility/heartbeat').start(client);
 });
 
 const eventFiles = fs.readdirSync('./models').filter(file => file.endsWith('.js'));
