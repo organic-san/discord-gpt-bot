@@ -1,14 +1,17 @@
 const Discord = require('discord.js');
 require('dotenv').config();
-const { GoogleGenAI } = require('@google/genai');
-const fs = require('fs');
 const func = require('../utility/functions');
 const system = require('../utility/system');
 const gptConfig = require('../utility/gptConfig');
 const notify = require('../utility/notify');
+const gemini = require('../utility/gemini');
 
 const MAX_DEPTH = 200;
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+/** 多人頻道中 role 無法分辨發話者，故在使用者訊息前標上暱稱（格式同步寫在 system prompt）。 */
+function speakerOf(msg) {
+    return msg.member?.displayName || msg.author.displayName || msg.author.username;
+}
 
 async function buildHistory(channel, referenceId, botId, depth) {
     if (!referenceId || depth <= 0) return [];
@@ -22,10 +25,13 @@ async function buildHistory(channel, referenceId, botId, depth) {
 
     const parent = await buildHistory(channel, msg.reference?.messageId, botId, depth - 1);
 
-    const role = msg.author.id === botId ? 'model' : 'user';
+    const isBot = msg.author.id === botId;
     const text = msg.content.replace(/<@!?\d+>/g, '').trim() || '(empty)';
 
-    return [...parent, { role, parts: [{ text }] }];
+    return [...parent, {
+        role: isBot ? 'model' : 'user',
+        parts: [{ text: isBot ? text : `[${speakerOf(msg)}]: ${text}` }],
+    }];
 }
 
 module.exports = {
@@ -34,9 +40,13 @@ module.exports = {
     async execute(client, msg) {
         if (msg.webhookId) return;
         if (msg.author.bot) return;
-        if (!msg.mentions.has(client.user)) return;
-        // 僅在管理員以 /chatconfig 指定的頻道內才觸發（未設定則不觸發；DM 不受限）
-        if (msg.guild && !gptConfig.isAllowed(msg.guild.id, msg.channel.id)) return;
+        // 私訊不經頻道白名單，等同任何人都能無限制消耗 API 額度，故一律不回應。
+        if (!msg.guild) return;
+        // mentions.has() 預設連 @everyone 與身分組提及都算命中（見 MessageMentions#has），
+        // 會被當成免費觸發器；只認直接 @ 機器人（回覆機器人並保留提及也算）。
+        if (!msg.mentions.users.has(client.user.id)) return;
+        // 僅在管理員以 /chatconfig 指定的頻道內才觸發（未設定則不觸發）
+        if (!gptConfig.isAllowed(msg.guild.id, msg.channel.id)) return;
         if(msg.channel.permissionsFor(client.user).has(Discord.PermissionsBitField.Flags.SendMessages) === false) return;
 
         const prompt = msg.content.replace(/<@!?\d+>/g, '').trim();
@@ -45,7 +55,7 @@ module.exports = {
         const imageAttachment = msg.attachments.find(a => a.contentType?.startsWith('image/'));
         if (!prompt && !imageAttachment) return;
 
-        console.log(`message command, from: ${msg.guild?.name ?? 'DM'}, user: ${msg.author.tag} (ID: ${msg.author.id})`);
+        console.log(`message command, from: ${msg.guild.name}, user: ${msg.author.tag} (ID: ${msg.author.id})`);
 
         await msg.channel.sendTyping();
 
@@ -70,42 +80,42 @@ module.exports = {
             ? await buildHistory(msg.channel, msg.reference.messageId, client.user.id, MAX_DEPTH)
             : [];
 
-        const systemPrompt = fs.readFileSync('./prompts/default.txt', 'utf-8')
-            .replaceAll('{botName}', client.user.username);
+        // SDK 要求 history 以 user turn 起始。使用者回覆機器人訊息時重建出的歷史會以 model 開頭
+        // （官方稱 prefilled model turn，Gemini 3.x 起明確不建議），補一則開場 user turn 使其合法。
+        if (history[0]?.role === 'model') {
+            history.unshift({ role: 'user', parts: [{ text: '（以下是先前的對話紀錄）' }] });
+        }
 
         try {
-            const chatSession = ai.chats.create({
-                model: process.env.DEFAULT_MODEL || 'gemini-3.1-flash-lite-preview',
-                config: { 
-                    systemInstruction: systemPrompt, 
+            const chatSession = gemini.ai.chats.create({
+                model: gemini.MODEL,
+                config: gemini.config(client.user.username, {
                     tools: [
                         {
                             googleSearch: { }
                         }
                     ]
-                },
+                }),
                 history,
             });
 
             const messageParts = [];
             if (imagePart) messageParts.push(imagePart);
-            if (prompt) messageParts.push({ text: prompt });
+            if (prompt) messageParts.push({ text: `[${speakerOf(msg)}]: ${prompt}` });
 
-            const result = await chatSession.sendMessage({ message: messageParts });
+            const result = await gemini.withRetry(() => chatSession.sendMessage({ message: messageParts }));
 
-            const usage = result.usageMetadata;
-            const inputTokens = usage?.promptTokenCount || 0;
-            const outputTokens = usage?.candidatesTokenCount || 0;
+            const { inputTokens, outputTokens } = gemini.usageOf(result);
             system.recordUsage(
                 msg.author.id, msg.author.username,
                 inputTokens, outputTokens,
                 func.calcGeminiCost(inputTokens, outputTokens)
             );
 
-            // 回應可能沒有文字（被安全過濾擋下、prompt 被擋、或空回應）→ 給明確訊息而非丟例外
-            if (!result.text || !result.text.trim()) {
-                const reason = result.candidates?.[0]?.finishReason || result.promptFeedback?.blockReason;
-                await msg.reply(`這次沒有產生內容${reason ? `（${reason}）` : ''}，可能是內容被安全過濾擋下或回應為空，換個說法再試試看。`);
+            // 回應可能沒有文字（被安全過濾擋下、輸出額度用盡、或空回應）→ 給明確訊息而非丟例外
+            const emptyReason = gemini.emptyReason(result);
+            if (emptyReason) {
+                await msg.reply(`這次沒有產生內容（${emptyReason}），換個說法再試試看。`);
                 return;
             }
 
@@ -117,7 +127,9 @@ module.exports = {
             }
         } catch (err) {
             notify.error('處理 chat 時發生錯誤', err);
-            if(err.message?.includes("429") || err.message?.includes("503")) {
+            // 依 ApiError.status 判斷，而非比對訊息字串（回應內文含 "429" 也會誤判）。
+            // 這裡的 429/503 是重試 2 次後仍然失敗的情況。
+            if (gemini.isOverloaded(err)) {
                 await msg.reply(`逼逼! 能量飲料耗光了...`);
                 return;
             }
