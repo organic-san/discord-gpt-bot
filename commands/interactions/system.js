@@ -77,10 +77,10 @@ module.exports = {
                 break;
 
             case 'cmdupdateg':
-                exec('node ester-slash-global.js', (error, stdout, stderr) => {
+                exec('node create-slash-global.js', (error, stdout, stderr) => {
                     if (error) {
-                        console.error(`執行 ester-slash-global.js 時發生錯誤: ${error.message}`);
-                        interaction.editReply(`執行 ester-slash-global.js 時發生錯誤: ${error.message}`).catch(console.error);
+                        console.error(`執行 create-slash-global.js 時發生錯誤: ${error.message}`);
+                        interaction.editReply(`執行 create-slash-global.js 時發生錯誤: ${error.message}`).catch(console.error);
                         return;
                     }
                     if (stderr) {
